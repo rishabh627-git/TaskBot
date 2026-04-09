@@ -1,5 +1,6 @@
 package com.taskbot;
 
+import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -27,6 +28,9 @@ public class StatusFragment extends Fragment {
     private StatusAdapter adapter;
     private TextView      tvLastSync, tvStatusEmpty;
     private RecyclerView  rvStatus;
+
+    // Keep a copy of the last fetched list so we can snapshot it on clear
+    private final List<TaskItem> lastKnownItems = new ArrayList<>();
 
     private final ExecutorService exec = Executors.newSingleThreadExecutor();
     private final Handler         main = new Handler(Looper.getMainLooper());
@@ -72,17 +76,30 @@ public class StatusFragment extends Fragment {
     }
 
     /**
-     * Called by MainActivity when the user clears ESP32 memory.
-     * Immediately empties the list without waiting for the next poll.
+     * Called by MainActivity BEFORE clearing the ESP32.
+     * Saves the current live task list as a history snapshot for today.
+     */
+    public void snapshotToHistory(Context ctx) {
+        if (!lastKnownItems.isEmpty()) {
+            HistoryStore.saveSnapshot(ctx, new ArrayList<>(lastKnownItems));
+        }
+    }
+
+    /**
+     * Called by MainActivity after ESP32 memory is cleared.
+     * Empties the UI immediately without waiting for the next poll.
      */
     public void clearAll() {
         if (!isAdded()) return;
+        lastKnownItems.clear();
         adapter.update(new ArrayList<>());
         tvStatusEmpty.setVisibility(View.VISIBLE);
         rvStatus.setVisibility(View.GONE);
         tvStatusEmpty.setText("ESP32 memory cleared.\nPush new tasks from the Tasks tab.");
         tvLastSync.setText("Cleared");
     }
+
+    // ── Polling ───────────────────────────────────────────────
 
     private void fetchStatus() {
         exec.execute(() -> {
@@ -91,6 +108,8 @@ public class StatusFragment extends Fragment {
                 if (!isAdded()) return;
                 if (r.ok && r.body != null) {
                     List<TaskItem> list = parse(r.body);
+                    lastKnownItems.clear();
+                    lastKnownItems.addAll(list);
                     adapter.update(list);
                     boolean empty = list.isEmpty();
                     tvStatusEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);

@@ -18,16 +18,16 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
 
-    private View           vDot;
-    private TextView       tvConnState;
+    private View            vDot;
+    private TextView        tvConnState;
 
     private ConnectFragment connectFragment;
     private StatusFragment  statusFragment;
+    private HistoryFragment historyFragment;
 
     private final ExecutorService exec = Executors.newSingleThreadExecutor();
     private final Handler         main = new Handler(Looper.getMainLooper());
 
-    // Background ping every 5 seconds
     private static final long PING_INTERVAL = 5000;
     private final Handler  pingHandler  = new Handler(Looper.getMainLooper());
     private final Runnable pingRunnable = new Runnable() {
@@ -51,21 +51,25 @@ public class MainActivity extends AppCompatActivity {
         TasksFragment  tasksFragment  = new TasksFragment();
         connectFragment               = new ConnectFragment();
         statusFragment                = new StatusFragment();
+        historyFragment               = new HistoryFragment();
 
-        // Connection state → header dot + tasks fragment
         connectFragment.setConnectionCallback(connected -> setConnected(connected));
 
-        // Clear memory → immediately wipe status tab list
-        connectFragment.setMemoryClearedCallback(() -> statusFragment.clearAll());
+        // On clear: snapshot → wipe status → refresh history
+        connectFragment.setMemoryClearedCallback(() -> {
+            statusFragment.snapshotToHistory(getApplicationContext());
+            statusFragment.clearAll();
+            historyFragment.refresh();
+        });
 
         ViewPager2 vp = findViewById(R.id.viewPager);
         vp.setAdapter(new FragmentStateAdapter(this) {
             private final Fragment[] frags = {
-                    tasksFragment, connectFragment, statusFragment
+                    tasksFragment, connectFragment, statusFragment, historyFragment
             };
             @NonNull @Override
             public Fragment createFragment(int pos) { return frags[pos]; }
-            @Override public int getItemCount() { return 3; }
+            @Override public int getItemCount() { return 4; }
         });
 
         TabLayout tabs = findViewById(R.id.tabLayout);
@@ -74,6 +78,7 @@ public class MainActivity extends AppCompatActivity {
                 case 0: tab.setText("Tasks");   break;
                 case 1: tab.setText("Connect"); break;
                 case 2: tab.setText("Status");  break;
+                case 3: tab.setText("History"); break;
             }
         }).attach();
 
