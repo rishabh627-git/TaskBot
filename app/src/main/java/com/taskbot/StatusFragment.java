@@ -4,6 +4,7 @@ import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -25,11 +26,14 @@ import java.util.concurrent.Executors;
 
 public class StatusFragment extends Fragment {
 
+    private static final String TAG = "TaskBot";
+
     private StatusAdapter adapter;
     private TextView      tvLastSync, tvStatusEmpty;
     private RecyclerView  rvStatus;
 
-    // Keep a copy of the last fetched list so we can snapshot it on clear
+    // Holds the last successfully fetched task list.
+    // Written ONLY on the main thread (inside main.post) so no concurrency issues.
     private final List<TaskItem> lastKnownItems = new ArrayList<>();
 
     private final ExecutorService exec = Executors.newSingleThreadExecutor();
@@ -43,6 +47,9 @@ public class StatusFragment extends Fragment {
             pollHandler.postDelayed(this, POLL_MS);
         }
     };
+
+    // Flag: stop updating lastKnownItems while a clear is in progress
+    private boolean frozen = false;
 
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inf,
@@ -60,6 +67,7 @@ public class StatusFragment extends Fragment {
 
     @Override public void onResume() {
         super.onResume();
+        frozen = false;
         adapter.startTicker();
         pollHandler.post(pollRunnable);
     }
@@ -75,19 +83,34 @@ public class StatusFragment extends Fragment {
         exec.shutdown();
     }
 
+    // ── Called by MainActivity on Clear button ────────────────
+
     /**
-     * Called by MainActivity BEFORE clearing the ESP32.
-     * Saves the current live task list as a history snapshot for today.
+     * Step 1 of clear sequence.
+     * Freeze the list so no poll result can overwrite it,
+     * then save whatever we have to history.
+     * Called on main thread — safe to read lastKnownItems directly.
      */
     public void snapshotToHistory(Context ctx) {
+        frozen = true; // stop poll callbacks from touching lastKnownItems
+
+        Log.d(TAG, "snapshotToHistory: " + lastKnownItems.size() + " tasks");
+        for (TaskItem t : lastKnownItems) {
+            Log.d(TAG, "  → " + t.name + " | done=" + t.done
+                    + " | totalMs=" + t.totalMs);
+        }
+
         if (!lastKnownItems.isEmpty()) {
             HistoryStore.saveSnapshot(ctx, new ArrayList<>(lastKnownItems));
+            Log.d(TAG, "snapshotToHistory: saved to store");
+        } else {
+            Log.w(TAG, "snapshotToHistory: lastKnownItems was EMPTY — nothing saved");
         }
     }
 
     /**
-     * Called by MainActivity after ESP32 memory is cleared.
-     * Empties the UI immediately without waiting for the next poll.
+     * Step 2 of clear sequence.
+     * Wipes the UI and resets state. Unfreeze after so polling resumes normally.
      */
     public void clearAll() {
         if (!isAdded()) return;
@@ -97,6 +120,8 @@ public class StatusFragment extends Fragment {
         rvStatus.setVisibility(View.GONE);
         tvStatusEmpty.setText("ESP32 memory cleared.\nPush new tasks from the Tasks tab.");
         tvLastSync.setText("Cleared");
+        frozen = false; // resume normal polling
+        Log.d(TAG, "clearAll: UI cleared, polling resumed");
     }
 
     // ── Polling ───────────────────────────────────────────────
@@ -106,26 +131,39 @@ public class StatusFragment extends Fragment {
             EspApi.Result r = EspApi.getTasks();
             main.post(() -> {
                 if (!isAdded()) return;
+
                 if (r.ok && r.body != null) {
                     List<TaskItem> list = parse(r.body);
-                    lastKnownItems.clear();
-                    lastKnownItems.addAll(list);
-                    adapter.update(list);
-                    boolean empty = list.isEmpty();
-                    tvStatusEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
-                    rvStatus.setVisibility(empty ? View.GONE : View.VISIBLE);
-                    if (empty) tvStatusEmpty.setText(
-                            "Connect to TaskBot WiFi to see live status");
-                    String time = new SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-                            .format(new Date());
-                    tvLastSync.setText("Synced " + time);
-                } else {
-                    tvLastSync.setText("Sync failed");
-                    if (adapter.count() == 0) {
-                        tvStatusEmpty.setVisibility(View.VISIBLE);
-                        rvStatus.setVisibility(View.GONE);
-                        tvStatusEmpty.setText(
+
+                    // Only update lastKnownItems if not frozen AND list is non-empty.
+                    // We never overwrite a good list with an empty one — that handles
+                    // the brief window right after ESP32 clear where /tasks returns [].
+                    if (!frozen) {
+                        if (!list.isEmpty()) {
+                            lastKnownItems.clear();
+                            lastKnownItems.addAll(list);
+                        }
+                        // Always update the UI regardless
+                        adapter.update(list);
+                        boolean empty = list.isEmpty();
+                        tvStatusEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
+                        rvStatus.setVisibility(empty ? View.GONE : View.VISIBLE);
+                        if (empty) tvStatusEmpty.setText(
                                 "Connect to TaskBot WiFi to see live status");
+                        String time = new SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+                                .format(new Date());
+                        tvLastSync.setText("Synced " + time);
+                    }
+                    // if frozen: discard this poll result entirely
+                } else {
+                    if (!frozen) {
+                        tvLastSync.setText("Sync failed");
+                        if (adapter.count() == 0) {
+                            tvStatusEmpty.setVisibility(View.VISIBLE);
+                            rvStatus.setVisibility(View.GONE);
+                            tvStatusEmpty.setText(
+                                    "Connect to TaskBot WiFi to see live status");
+                        }
                     }
                 }
             });
