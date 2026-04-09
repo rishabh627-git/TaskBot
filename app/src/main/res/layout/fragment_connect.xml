@@ -131,6 +131,17 @@
         android:backgroundTint="@color/surface2"
         android:stateListAnimator="@null"/>
 
+    <!-- Clear Memory button — red, clearly destructive -->
+    <Button
+        android:id="@+id/btnClearMem"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_marginTop="10dp"
+        android:text="Clear ESP32 Memory"
+        android:textColor="@color/white"
+        android:backgroundTint="@color/red"
+        android:stateListAnimator="@null"/>
+
     <TextView
         android:id="@+id/tvPingResult"
         android:layout_width="match_parent"

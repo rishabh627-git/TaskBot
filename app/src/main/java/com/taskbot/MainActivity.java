@@ -9,7 +9,6 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
-import androidx.fragment.app.FragmentActivity;
 import androidx.viewpager2.adapter.FragmentStateAdapter;
 import androidx.viewpager2.widget.ViewPager2;
 import com.google.android.material.tabs.TabLayout;
@@ -21,14 +20,16 @@ public class MainActivity extends AppCompatActivity {
 
     private View           vDot;
     private TextView       tvConnState;
+
     private ConnectFragment connectFragment;
+    private StatusFragment  statusFragment;
 
     private final ExecutorService exec = Executors.newSingleThreadExecutor();
     private final Handler         main = new Handler(Looper.getMainLooper());
 
-    // Background ping every 5 seconds to keep header dot accurate
+    // Background ping every 5 seconds
     private static final long PING_INTERVAL = 5000;
-    private final Handler pingHandler = new Handler(Looper.getMainLooper());
+    private final Handler  pingHandler  = new Handler(Looper.getMainLooper());
     private final Runnable pingRunnable = new Runnable() {
         @Override public void run() {
             exec.execute(() -> {
@@ -47,15 +48,16 @@ public class MainActivity extends AppCompatActivity {
         vDot        = findViewById(R.id.vDot);
         tvConnState = findViewById(R.id.tvConnState);
 
-        // Build fragments
-        TasksFragment   tasksFragment  = new TasksFragment();
-        connectFragment = new ConnectFragment();
-        StatusFragment  statusFragment = new StatusFragment();
+        TasksFragment  tasksFragment  = new TasksFragment();
+        connectFragment               = new ConnectFragment();
+        statusFragment                = new StatusFragment();
 
-        // Connect fragment notifies us when connection state changes
+        // Connection state → header dot + tasks fragment
         connectFragment.setConnectionCallback(connected -> setConnected(connected));
 
-        // ViewPager2
+        // Clear memory → immediately wipe status tab list
+        connectFragment.setMemoryClearedCallback(() -> statusFragment.clearAll());
+
         ViewPager2 vp = findViewById(R.id.viewPager);
         vp.setAdapter(new FragmentStateAdapter(this) {
             private final Fragment[] frags = {
@@ -66,7 +68,6 @@ public class MainActivity extends AppCompatActivity {
             @Override public int getItemCount() { return 3; }
         });
 
-        // Tabs
         TabLayout tabs = findViewById(R.id.tabLayout);
         new TabLayoutMediator(tabs, vp, (tab, pos) -> {
             switch (pos) {
@@ -76,7 +77,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }).attach();
 
-        // Kick off background ping
         pingHandler.postDelayed(pingRunnable, 1000);
     }
 
@@ -89,7 +89,6 @@ public class MainActivity extends AppCompatActivity {
     private void setConnected(boolean connected) {
         TasksFragment.setEspReachable(connected);
         if (connectFragment != null) connectFragment.setConnected(connected);
-
         vDot.setBackground(ContextCompat.getDrawable(this,
                 connected ? R.drawable.dot_connected : R.drawable.dot_disconnected));
         tvConnState.setText(connected ? "Connected" : "Not connected");

@@ -31,9 +31,8 @@ public class StatusFragment extends Fragment {
     private final ExecutorService exec = Executors.newSingleThreadExecutor();
     private final Handler         main = new Handler(Looper.getMainLooper());
 
-    // Poll every 2 seconds while this fragment is visible
     private static final long POLL_MS = 2000;
-    private final Handler pollHandler = new Handler(Looper.getMainLooper());
+    private final Handler  pollHandler  = new Handler(Looper.getMainLooper());
     private final Runnable pollRunnable = new Runnable() {
         @Override public void run() {
             fetchStatus();
@@ -46,22 +45,19 @@ public class StatusFragment extends Fragment {
                              @Nullable ViewGroup container,
                              @Nullable Bundle saved) {
         View root = inf.inflate(R.layout.fragment_status, container, false);
-
-        tvLastSync   = root.findViewById(R.id.tvLastSync);
-        tvStatusEmpty= root.findViewById(R.id.tvStatusEmpty);
-        rvStatus     = root.findViewById(R.id.rvStatus);
-
+        tvLastSync    = root.findViewById(R.id.tvLastSync);
+        tvStatusEmpty = root.findViewById(R.id.tvStatusEmpty);
+        rvStatus      = root.findViewById(R.id.rvStatus);
         adapter = new StatusAdapter();
         rvStatus.setLayoutManager(new LinearLayoutManager(getContext()));
         rvStatus.setAdapter(adapter);
-
         return root;
     }
 
     @Override public void onResume() {
         super.onResume();
         adapter.startTicker();
-        pollHandler.post(pollRunnable);  // start polling immediately
+        pollHandler.post(pollRunnable);
     }
 
     @Override public void onPause() {
@@ -75,32 +71,42 @@ public class StatusFragment extends Fragment {
         exec.shutdown();
     }
 
+    /**
+     * Called by MainActivity when the user clears ESP32 memory.
+     * Immediately empties the list without waiting for the next poll.
+     */
+    public void clearAll() {
+        if (!isAdded()) return;
+        adapter.update(new ArrayList<>());
+        tvStatusEmpty.setVisibility(View.VISIBLE);
+        rvStatus.setVisibility(View.GONE);
+        tvStatusEmpty.setText("ESP32 memory cleared.\nPush new tasks from the Tasks tab.");
+        tvLastSync.setText("Cleared");
+    }
+
     private void fetchStatus() {
         exec.execute(() -> {
             EspApi.Result r = EspApi.getTasks();
             main.post(() -> {
                 if (!isAdded()) return;
-
                 if (r.ok && r.body != null) {
                     List<TaskItem> list = parse(r.body);
                     adapter.update(list);
-
                     boolean empty = list.isEmpty();
                     tvStatusEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
                     rvStatus.setVisibility(empty ? View.GONE : View.VISIBLE);
-
-                    // update sync timestamp
+                    if (empty) tvStatusEmpty.setText(
+                            "Connect to TaskBot WiFi to see live status");
                     String time = new SimpleDateFormat("HH:mm:ss", Locale.getDefault())
                             .format(new Date());
                     tvLastSync.setText("Synced " + time);
                 } else {
-                    // Can't reach ESP32 — keep showing last data
-                    // just mark sync as failed
                     tvLastSync.setText("Sync failed");
                     if (adapter.count() == 0) {
                         tvStatusEmpty.setVisibility(View.VISIBLE);
                         rvStatus.setVisibility(View.GONE);
-                        tvStatusEmpty.setText("Connect to TaskBot WiFi to see live status");
+                        tvStatusEmpty.setText(
+                                "Connect to TaskBot WiFi to see live status");
                     }
                 }
             });

@@ -14,9 +14,8 @@ import java.util.Scanner;
 public class EspApi {
 
     public static final String BASE = "http://192.168.4.1";
-    private static final int TIMEOUT = 4000; // ms
+    private static final int TIMEOUT = 4000;
 
-    // ── Result wrapper ────────────────────────────────────────
     public static class Result {
         public boolean ok;
         public String  body;
@@ -26,18 +25,17 @@ public class EspApi {
         }
     }
 
-    // ── GET /status  — quick ping ─────────────────────────────
+    /** GET /status — quick ping */
     public static Result ping() {
         return get("/status");
     }
 
-    // ── GET /tasks  — full task state ─────────────────────────
+    /** GET /tasks — full task state */
     public static Result getTasks() {
         return get("/tasks");
     }
 
-    // ── POST /tasks  — push task list ─────────────────────────
-    // names: list of task name strings
+    /** POST /tasks — push task list */
     public static Result postTasks(java.util.List<String> names) {
         try {
             JSONArray arr = new JSONArray();
@@ -52,7 +50,13 @@ public class EspApi {
         }
     }
 
-    // ── Low-level GET ─────────────────────────────────────────
+    /** POST /clear — wipe all tasks from ESP32 NVS */
+    public static Result clearMemory() {
+        return post("/clear", "{}");
+    }
+
+    // ── Low-level helpers ─────────────────────────────────────
+
     private static Result get(String path) {
         try {
             HttpURLConnection c = open(BASE + path, "GET");
@@ -67,7 +71,6 @@ public class EspApi {
         }
     }
 
-    // ── Low-level POST ────────────────────────────────────────
     private static Result post(String path, String json) {
         try {
             HttpURLConnection c = open(BASE + path, "POST");
@@ -77,9 +80,7 @@ public class EspApi {
             c.setRequestProperty("Content-Length", String.valueOf(bytes.length));
             c.connect();
             OutputStream os = c.getOutputStream();
-            os.write(bytes);
-            os.flush();
-            os.close();
+            os.write(bytes); os.flush(); os.close();
             int code = c.getResponseCode();
             String body = readStream(code < 400
                     ? c.getInputStream() : c.getErrorStream());

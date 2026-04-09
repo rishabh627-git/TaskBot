@@ -76,6 +76,13 @@ public class TaskAdapter extends RecyclerView.Adapter<TaskAdapter.VH> {
 
     public int count() { return items.size(); }
 
+    public void clearAll() {
+        int size = items.size();
+        items.clear();
+        notifyItemRangeRemoved(0, size);
+        if (listener != null) listener.onChange();
+    }
+
     // ── RecyclerView ─────────────────────────────────────────
 
     @NonNull @Override
